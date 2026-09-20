@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     # Default to a sub-directory so the SQLite file lives in a location that
     # can be persisted via a Docker volume mount (e.g. /app/data).
     DATABASE_URL: str = "sqlite:///./data/dmarq.db"
+    # SQLAlchemy connection pool sizing. Defaults match SQLAlchemy's own
+    # QueuePool defaults (5 + 10 overflow); expose as env vars so deployments
+    # running several concurrent mail sources / background refresh jobs can
+    # size the pool without patching code.
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 10
 
     # JWT Authentication
     SECRET_KEY: Optional[str] = None

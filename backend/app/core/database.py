@@ -58,8 +58,15 @@ _sync_url = _make_sync_db_url(settings.DATABASE_URL)
 # Ensure the parent directory exists before SQLAlchemy tries to open the file
 _ensure_sqlite_dir(_sync_url)
 
-# Configure SQLAlchemy (normalise async driver schemes to their sync equivalents)
-engine = create_engine(_sync_url, pool_pre_ping=True)
+# Configure SQLAlchemy (normalise async driver schemes to their sync equivalents).
+# Pool sizing is skipped for SQLite (StaticPool/NullPool there; pool_size and
+# max_overflow are invalid kwargs for SQLite's default pool implementation).
+_engine_kwargs = {"pool_pre_ping": True}
+if not make_url(_sync_url).drivername.startswith("sqlite"):
+    _engine_kwargs["pool_size"] = settings.DB_POOL_SIZE
+    _engine_kwargs["max_overflow"] = settings.DB_MAX_OVERFLOW
+
+engine = create_engine(_sync_url, **_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Create base class for SQLAlchemy models
