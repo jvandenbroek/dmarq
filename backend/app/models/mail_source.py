@@ -73,7 +73,10 @@ class MailSource(Base):
     # JSON-encoded list of Graph message IDs that have already been ingested
     m365_ingested_ids = Column(Text, nullable=True, default="[]")
 
-    # Polling behaviour
+    # Polling behaviour. Units are MINUTES, not seconds — this is easy to get
+    # wrong since it isn't reflected in the field name; see the API schema
+    # description on MailSourceBase.polling_interval for the operator-facing
+    # version of this note.
     polling_interval = Column(Integer, default=60)  # minutes
 
     # Source lifecycle
