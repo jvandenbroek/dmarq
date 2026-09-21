@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     # can be persisted via a Docker volume mount (e.g. /app/data).
     DATABASE_URL: str = "sqlite:///./data/dmarq.db"
 
+    # Optional server-side safety net for connections that are left with an
+    # open transaction (PostgreSQL only).  Defence in depth for operators who
+    # want a hard ceiling; disabled by default because requests on this
+    # deployment can legitimately hold their session open for minutes while
+    # they perform network-bound DNS work.  Pick a value comfortably above the
+    # slowest request to arm it; 0 disables it.
+    DB_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS: int = 0
+
     # JWT Authentication
     SECRET_KEY: Optional[str] = None
     ALGORITHM: str = "HS256"
