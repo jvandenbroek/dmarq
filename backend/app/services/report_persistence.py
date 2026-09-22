@@ -363,8 +363,9 @@ def hydrate_report_store_from_db(
     else:
         store.clear()
     reports = query.order_by(DMARCReport.end_date.desc()).all()
-    for report in reports:
-        store.add_report(persisted_report_to_dict(report))
+    # Bulk path: aggregate once per domain instead of re-scanning every
+    # previously loaded record on each add (O(N) instead of O(N^2)).
+    store.add_reports(persisted_report_to_dict(report) for report in reports)
     return len(reports)
 
 
@@ -403,8 +404,9 @@ def hydrate_domain_report_store_from_db(
         cutoff = int(time.time()) - (max(1, int(days)) * 24 * 60 * 60)
         query = query.filter(DMARCReport.end_date >= cutoff)
     reports = query.order_by(DMARCReport.end_date.desc()).all()
-    for report in reports:
-        store.add_report(persisted_report_to_dict(report))
+    # Bulk path: aggregate once per domain instead of re-scanning every
+    # previously loaded record on each add (O(N) instead of O(N^2)).
+    store.add_reports(persisted_report_to_dict(report) for report in reports)
     return len(reports)
 
 

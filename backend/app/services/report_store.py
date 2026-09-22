@@ -1,6 +1,6 @@
 import threading
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 ACTIVE_SELECTOR_WINDOW_DAYS = 7
 RECENT_SELECTOR_WINDOW_DAYS = 30
@@ -462,12 +462,11 @@ class ReportStore:
         self.domain_summary[domain] = summary
         self.domain_sources[domain] = sources
 
-    def add_report(self, report: Dict[str, Any]) -> None:
-        """
-        Add a new report to the store
+    def _append_report(self, report: Dict[str, Any]) -> str:
+        """Append a report to its domain bucket without recomputing aggregates.
 
-        Args:
-            report: Parsed DMARC report from DMARCParser
+        Returns the domain the report was filed under so callers can recompute
+        the affected domains once after a bulk load.
         """
         domain = report.get("domain", "unknown")
 
@@ -484,9 +483,38 @@ class ReportStore:
 
         # Add the new report
         self.domain_reports[domain].append(report)
+        return domain
+
+    def add_report(self, report: Dict[str, Any]) -> None:
+        """
+        Add a new report to the store
+
+        Args:
+            report: Parsed DMARC report from DMARCParser
+        """
+        domain = self._append_report(report)
 
         # Recompute all summary stats from the full list to keep them consistent
         self._recompute_domain_stats(domain)
+
+    def add_reports(self, reports: Iterable[Dict[str, Any]]) -> int:
+        """Bulk-load reports, recomputing each affected domain only once.
+
+        ``add_report`` recomputes a domain's full aggregates on every call, so
+        hydrating N reports one by one re-scans every previously added record
+        and costs O(N^2) in record count. Bulk loads (DB hydration) append
+        first and aggregate once per domain, which is O(N).
+
+        Returns the number of reports added.
+        """
+        touched: Dict[str, None] = {}
+        added = 0
+        for report in reports:
+            touched[self._append_report(report)] = None
+            added += 1
+        for domain in touched:
+            self._recompute_domain_stats(domain)
+        return added
 
     def get_domains(self) -> List[str]:
         """
