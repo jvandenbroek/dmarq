@@ -66,6 +66,20 @@ def _json_or_none(value: Any) -> Optional[str]:
     return json.dumps(value, sort_keys=True)
 
 
+def _result_text(record: Dict[str, Any], key: str) -> str:
+    """Return the evaluated result string for ``key`` (``spf``/``dkim``).
+
+    ``record[key]`` holds the auth_results list of dicts when parsed from XML,
+    so it must never be used as the scalar column value. Degenerate reports
+    (e.g. wp.pl sending an empty ``policy_evaluated``) otherwise leak a list
+    of dicts into a String column and abort the whole transaction.
+    """
+    for value in (record.get(f"{key}_result"), record.get(key)):
+        if isinstance(value, str) and value:
+            return value
+    return "unknown"
+
+
 def _policy_parts(report: Dict[str, Any]) -> Dict[str, Any]:
     policy = report.get("policy") or {}
     if isinstance(policy, str):
@@ -219,8 +233,8 @@ def save_parsed_report(
                 source_ip=record.get("source_ip") or "unknown",
                 count=_record_message_count(record),
                 disposition=record.get("disposition") or "none",
-                dkim=record.get("dkim_result") or record.get("dkim") or "unknown",
-                spf=record.get("spf_result") or record.get("spf") or "unknown",
+                dkim=_result_text(record, "dkim"),
+                spf=_result_text(record, "spf"),
                 header_from=record.get("header_from"),
                 envelope_from=record.get("envelope_from"),
                 envelope_to=record.get("envelope_to"),

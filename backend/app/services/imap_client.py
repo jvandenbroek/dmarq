@@ -747,7 +747,10 @@ class IMAPClient:
             return False
 
         if self.db is not None:
-            save_parsed_report(self.db, report, workspace_id=self.workspace_id)
+            # Savepoint: a bad report must not poison the session and fail
+            # every other attachment in the same poll.
+            with self.db.begin_nested():
+                save_parsed_report(self.db, report, workspace_id=self.workspace_id)
         self.report_store.add_report(report)
         self._append_detail(
             stats,
