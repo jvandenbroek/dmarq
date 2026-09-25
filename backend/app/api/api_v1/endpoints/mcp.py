@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -556,6 +557,9 @@ async def mcp_jsonrpc(
         PERMISSION_REPORTS_READ,
     )
     _require_advanced_integrations(db, workspace)
+    if payload.id is None and payload.method.startswith("notifications/"):
+        # JSON-RPC notifications expect no response body; MCP HTTP transport uses 202.
+        return Response(status_code=status.HTTP_202_ACCEPTED)
     if payload.method == "initialize":
         return _jsonrpc_response(
             payload.id,
@@ -603,10 +607,13 @@ async def mcp_jsonrpc(
         request=request,
     )
     db.commit()
+    encoded = jsonable_encoder(result)
+    # MCP content blocks have no "json" type; clients validate against text/image/resource.
     return _jsonrpc_response(
         payload.id,
         {
-            "content": [{"type": "json", "json": jsonable_encoder(result)}],
+            "content": [{"type": "text", "text": json.dumps(encoded)}],
+            "structuredContent": encoded,
             "isError": False,
         },
     )
