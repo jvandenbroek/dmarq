@@ -1,5 +1,6 @@
 import asyncio
 import builtins
+import json
 import sys
 import time
 from types import SimpleNamespace
@@ -1444,7 +1445,7 @@ def test_mcp_export_catalog_returns_workspace_exports(
         },
     )
     assert response.status_code == 200
-    result = response.json()["result"]["content"][0]["json"]
+    result = response.json()["result"]["structuredContent"]
 
     assert result["token"]["name"] == "mcp catalog"
     assert result["mcp"]["available"] is True
@@ -1571,6 +1572,14 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
     assert initialized.status_code == 200
     assert initialized.json()["result"]["serverInfo"]["name"] == "dmarq"
 
+    notified = client.post(
+        "/api/v1/mcp",
+        headers={"X-API-Key": token.secret},
+        json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+    )
+    assert notified.status_code == 202
+    assert notified.content == b""
+
     unsupported_method = client.post(
         "/api/v1/mcp",
         headers={"X-API-Key": token.secret},
@@ -1590,8 +1599,11 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
         },
     )
     assert called.status_code == 200
-    result = called.json()["result"]["content"][0]["json"]
+    result = called.json()["result"]["structuredContent"]
     assert result["summary"]["domain"] == DOMAIN
+    content = called.json()["result"]["content"]
+    assert content[0]["type"] == "text"
+    assert json.loads(content[0]["text"]) == result
 
     source_intelligence = client.post(
         "/api/v1/mcp",
@@ -1604,7 +1616,7 @@ def test_mcp_requires_enabled_scoped_token(client: TestClient, db_session: Sessi
         },
     )
     assert source_intelligence.status_code == 200
-    source_result = source_intelligence.json()["result"]["content"][0]["json"]
+    source_result = source_intelligence.json()["result"]["structuredContent"]
     assert source_result["domain"] == DOMAIN
     assert "regions" in source_result
 
