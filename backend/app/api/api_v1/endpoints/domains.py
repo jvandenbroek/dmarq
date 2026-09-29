@@ -61,7 +61,11 @@ from app.services.dns_cache import (
     resolve_domain_dns_cached,
 )
 from app.services.dns_guidance import MailAuthSetupDefaults, build_dns_guidance
-from app.services.dns_posture_snapshots import accepted_dns_posture_result
+from app.services.dns_posture_refresh import refresh_domain_dns_posture
+from app.services.dns_posture_snapshots import (
+    accepted_dns_posture_result,
+    request_dns_posture_refresh,
+)
 from app.services.dns_provider_connectors import (
     provider_connector_metadata,
     provider_connector_registry,
@@ -4032,13 +4036,15 @@ async def _build_domain_dns_health(  # pylint: disable=too-many-locals
             refresh=False,
         )
     else:
-        result, _, _ = await resolve_domain_dns_cached(
+        result, cached, checked_at = await resolve_domain_dns_cached(
             db,
             provider,
             domain_id,
             selectors=combined_selectors,
             refresh=refresh,
         )
+        result.cached = cached  # type: ignore[attr-defined]
+        result.checked_at = checked_at  # type: ignore[attr-defined]
     summary = store.get_domain_summary(domain_id)
     if bool(getattr(result, "pending", False)):
         pending_check = DNSHealthCheck(
@@ -4485,13 +4491,15 @@ async def _build_domain_health_grade(
                 refresh=False,
             )
         else:
-            dns, _, _ = await resolve_domain_dns_cached(
+            dns, cached, checked_at = await resolve_domain_dns_cached(
                 db,
                 provider,
                 domain_id,
                 selectors=combined_selectors,
                 refresh=refresh,
             )
+            dns.cached = cached  # type: ignore[attr-defined]
+            dns.checked_at = checked_at  # type: ignore[attr-defined]
     except (asyncio.TimeoutError, LookupError, OSError) as exc:
         dns = DomainDNSResult(
             lookup_status="failed",
@@ -7113,6 +7121,30 @@ async def get_domain_posture_dashboard(
     )
 
 
+async def _refresh_accepted_dns_posture(
+    db: Session,
+    *,
+    workspace: Workspace,
+    domain_name: str,
+) -> None:
+    """Re-materialize the immutable posture snapshot that cached reads use."""
+    domain = (
+        db.query(Domain)
+        .filter(Domain.name == domain_name, Domain.workspace_id == workspace.id)
+        .one_or_none()
+    )
+    if domain is None:
+        return
+    request_dns_posture_refresh(
+        db,
+        domain=domain,
+        selectors=_get_domain_selectors_from_db(db, domain_name),
+        trigger="operator_refresh",
+    )
+    db.commit()
+    await refresh_domain_dns_posture(domain.id)
+
+
 async def _build_domain_posture_dashboard_for_workspace(
     db: Session,
     *,
@@ -7129,6 +7161,9 @@ async def _build_domain_posture_dashboard_for_workspace(
     """Build a posture dashboard, optionally persisting the current health snapshot."""
     if store is None or domain_name is None:
         domain_name, store = _single_domain_report_store_for_read(db, domain_id, workspace)
+
+    if refresh and capture_snapshot:
+        await _refresh_accepted_dns_posture(db, workspace=workspace, domain_name=domain_name)
 
     health_kwargs: Dict[str, Any] = {"refresh": refresh}
     grade_kwargs: Dict[str, Any] = {"refresh": refresh}

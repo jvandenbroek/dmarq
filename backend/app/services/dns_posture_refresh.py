@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta
 from typing import List, Tuple
 
 from sqlalchemy import text
@@ -30,6 +31,13 @@ def _try_acquire_refresh_lock(db) -> bool:
             {"lock_key": _DNS_POSTURE_REFRESH_LOCK_KEY},
         ).scalar()
     )
+
+
+def _baseline_expired(current: DomainDNSPostureCurrent) -> bool:
+    max_age = int(get_settings().DNS_POSTURE_MAX_AGE_SECONDS or 0)
+    if max_age <= 0 or current.completed_at is None:
+        return max_age > 0
+    return current.completed_at <= datetime.utcnow() - timedelta(seconds=max_age)
 
 
 def _selectors(domain: Domain) -> list[str]:
@@ -68,9 +76,14 @@ async def refresh_domain_dns_posture(domain_id: int) -> bool:
         if domain is None or not domain.active:
             return False
         current = db.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one_or_none()
-        # A completed baseline is refreshed only after an ingest/operator
-        # request. This avoids periodic network work unrelated to new data.
-        if current is not None and current.requested_at is None and current.accepted_snapshot_id:
+        # A completed baseline is refreshed after an ingest/operator request or
+        # once it ages out; low-volume domains rarely receive new reports.
+        if (
+            current is not None
+            and current.requested_at is None
+            and current.accepted_snapshot_id
+            and not _baseline_expired(current)
+        ):
             return False
         provider = get_default_provider(db)
         selectors = _selectors(domain)
