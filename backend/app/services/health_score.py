@@ -627,12 +627,17 @@ def score_domain_health(domain: Dict[str, Any]) -> Dict[str, Any]:
     policy = _policy_factor(policy_name)
     confidence = _confidence_factor(domain)
     reputation = _reputation_factor(domain)
-    raw_score = round(
-        (pass_rate * 0.50)
-        + (dns * 0.30)
-        + (confidence * 0.10)
-        + (reputation * 0.10)
-    )
+    if int(domain.get("total_emails") or 0) > 0:
+        raw_score = round(
+            (pass_rate * 0.50)
+            + (dns * 0.30)
+            + (confidence * 0.10)
+            + (reputation * 0.10)
+        )
+    else:
+        # No mail in the report window means compliance is unknown, not 0%.
+        # Score on the remaining factors; the low-confidence cap still applies.
+        raw_score = round(((dns * 0.30) + (confidence * 0.10) + (reputation * 0.10)) / 0.50)
     score = min(raw_score, _score_cap(domain, confidence, policy=policy_name))
     actions = _domain_actions(domain)
     critical_actions = sum(1 for action in actions if action["severity"] == "critical")
