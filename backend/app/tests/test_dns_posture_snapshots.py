@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -236,3 +236,34 @@ async def test_refresh_domain_keeps_worker_alive_when_resolution_fails(db_sessio
     monkeypatch.setattr(dns_posture_refresh, "resolve_domain_dns_cached", fail)
 
     assert await dns_posture_refresh.refresh_domain_dns_posture(domain.id) is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_domain_reresolves_expired_baseline_without_request(db_session, monkeypatch):
+    domain = Domain(name="quiet.example", active=True)
+    db_session.add(domain)
+    db_session.flush()
+    capture_dns_posture_snapshot(db_session, domain=domain, result=_result(), selectors=[], trigger="report_ingest")
+    db_session.commit()
+    calls = []
+
+    async def resolve(*_args, **_kwargs):
+        calls.append(1)
+        return _result(), False, datetime.utcnow()
+
+    monkeypatch.setattr(dns_posture_refresh, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(dns_posture_refresh, "get_default_provider", lambda _db: object())
+    monkeypatch.setattr(dns_posture_refresh, "resolve_domain_dns_cached", resolve)
+
+    # Fresh baseline without a pending request stays untouched.
+    assert await dns_posture_refresh.refresh_domain_dns_posture(domain.id) is False
+    assert calls == []
+
+    current = db_session.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one()
+    current.completed_at = datetime.utcnow() - timedelta(days=2)
+    db_session.commit()
+
+    assert await dns_posture_refresh.refresh_domain_dns_posture(domain.id) is True
+    assert calls == [1]
+    current = db_session.query(DomainDNSPostureCurrent).filter_by(domain_id=domain.id).one()
+    assert current.completed_at > datetime.utcnow() - timedelta(minutes=1)
