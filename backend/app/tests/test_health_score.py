@@ -342,3 +342,20 @@ def test_build_health_summary_a_plus_reachable_at_system_level():
 
     assert summary["score"] >= 97
     assert summary["grade"] == "A+"
+
+
+def test_domain_without_mail_in_window_is_not_scored_as_zero_compliance():
+    health = score_domain_health(
+        {
+            "domain_name": "quiet.example",
+            "pass_rate": 0,
+            "total_emails": 0,
+            "report_count": 0,
+            "dmarc_status": True,
+            "spf_status": True,
+            "dkim_status": True,
+            "policy": "quarantine",
+        }
+    )
+    assert health["status"] != "critical"
+    assert health["score"] <= 79
