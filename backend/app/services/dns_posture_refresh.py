@@ -13,9 +13,12 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models.dns_posture_snapshot import DomainDNSPostureCurrent
 from app.models.domain import Domain
+from app.services.bimi import check_bimi_cached
+from app.services.dane import check_dane_cached
 from app.services.dns_cache import resolve_domain_dns_cached
 from app.services.dns_posture_snapshots import capture_dns_posture_snapshot
 from app.services.dns_resolver import get_default_provider
+from app.services.mta_sts import check_mta_sts_cached
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +69,22 @@ def _candidates(limit: int) -> List[Tuple[int, str]]:
         db.close()
 
 
+async def _refresh_side_checks(db, provider, domain: Domain) -> None:
+    # Cached dashboard reads never go live for BIMI/MTA-STS/DANE, so keep
+    # those cache rows in step with the posture snapshot. Best effort.
+    try:
+        await check_mta_sts_cached(db, provider, domain.name, refresh=True)
+        await check_bimi_cached(db, provider, domain.name, refresh=True)
+        await check_dane_cached(db, provider, domain.name, derive_suggestions=True, refresh=True)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        db.rollback()
+        logger.warning(
+            "DNS side-check refresh failed for domain id=%s with %s", domain.id, type(exc).__name__
+        )
+
+
 async def refresh_domain_dns_posture(domain_id: int) -> bool:
     """Resolve one domain and atomically publish a safe evidence snapshot."""
     db = SessionLocal()
@@ -113,6 +132,7 @@ async def refresh_domain_dns_posture(domain_id: int) -> bool:
             ),
         )
         db.commit()
+        await _refresh_side_checks(db, provider, domain)
         logger.info(
             "Materialized DNS posture snapshot id=%s for domain id=%s accepted=%s",
             snapshot.id,
