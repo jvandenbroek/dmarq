@@ -1,6 +1,6 @@
 fastapi>=0.96.0
 uvicorn>=0.22.0
-sqlalchemy>=2.0.0
+sqlalchemy>=2.0.0,<2.1  # 2.1 defaults postgresql:// to psycopg3; we ship psycopg2
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
 python-jose[cryptography]>=3.3.0
