@@ -82,9 +82,10 @@ RUN dpkg -i /tmp/libsqlite3-0.deb \
     && ldconfig \
     && rm /tmp/libsqlite3-0.deb
 
-# Copy Python requirements and install
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install pinned Python dependencies (requirements.lock is generated from
+# requirements.txt by scripts/lock-requirements.sh)
+COPY requirements.txt requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.lock
 
 # Copy application code including templates and static assets
 COPY . .
